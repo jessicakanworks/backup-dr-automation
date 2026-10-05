@@ -1,0 +1,21 @@
+---
+- name: Replicate backup store to DR site
+  hosts: backup_server
+  become: true
+  tasks:
+    - ansible.builtin.package: {name: rclone, state: present}
+    - ansible.builtin.copy:
+        dest: /root/.config/rclone/rclone.conf
+        mode: "0600"
+        content: |
+          [dr]
+          type = s3
+          provider = Minio
+          endpoint = https://minio.dr.example.net
+          access_key_id = {{ vault_dr_access_key }}
+          secret_access_key = {{ vault_dr_secret_key }}
+    - ansible.builtin.cron:
+        name: replicate backups to DR
+        hour: "3"
+        minute: "0"
+        job: "rclone sync /backups dr:backups --transfers 8 --checksum --log-file /var/log/rclone-dr.log && date +%s > /var/lib/prometheus/node-exporter/dr_replication.prom.tmp && (echo -n 'dr_replication_last_success_timestamp '; cat /var/lib/prometheus/node-exporter/dr_replication.prom.tmp) > /var/lib/prometheus/node-exporter/dr_replication.prom"

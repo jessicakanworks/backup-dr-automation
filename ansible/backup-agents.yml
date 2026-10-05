@@ -1,0 +1,31 @@
+---
+- name: restic backups on every host
+  hosts: all
+  become: true
+  vars:
+    restic_repo: "sftp:backup@10.10.9.30:/backups/{{ inventory_hostname }}"
+    restic_paths: [/etc, /opt/app, /var/lib/postgresql/backups, /home]
+    restic_excludes: ["*.tmp", "/opt/app/logs/*.gz"]
+  tasks:
+    - ansible.builtin.package: {name: restic, state: present}
+    - ansible.builtin.copy:
+        dest: /etc/restic.env
+        mode: "0600"
+        content: |
+          RESTIC_REPOSITORY={{ restic_repo }}
+          RESTIC_PASSWORD={{ vault_restic_password }}
+    - name: Init repository if missing
+      ansible.builtin.shell: ". /etc/restic.env && restic snapshots >/dev/null 2>&1 || restic init"
+      changed_when: false
+    - ansible.builtin.copy:
+        dest: /usr/local/bin/restic-backup.sh
+        mode: "0750"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          . /etc/restic.env
+          restic backup {{ restic_paths | join(' ') }} {% for e in restic_excludes %}--exclude '{{ e }}' {% endfor %}--tag nightly
+          restic forget --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
+          restic check --read-data-subset=5%
+          echo "restic_last_success_timestamp $(date +%s)" > /var/lib/prometheus/node-exporter/restic.prom
+    - ansible.builtin.cron: {name: restic nightly, hour: "0", minute: "30", job: /usr/local/bin/restic-backup.sh, user: root}

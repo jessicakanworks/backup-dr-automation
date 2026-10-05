@@ -1,0 +1,4 @@
+repo_base: sftp:backup@10.10.9.30:/backups
+local_store: /backups
+dr_remote: dr:backups
+hosts: [dev-web-01, dev-app-01, dev-db-01, aaa-01, aaa-02]
